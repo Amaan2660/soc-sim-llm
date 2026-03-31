@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Logs (VERY IMPORTANT)
+data/raw_logs/*.jsonl
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+
+# Docker
+*.log
