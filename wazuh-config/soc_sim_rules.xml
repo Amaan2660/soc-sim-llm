@@ -1,0 +1,17 @@
+<group name="soc_sim,">
+  <rule id="100010" level="3">
+    <if_sid>86600</if_sid>
+    <field name="log_type">soc_sim</field>
+    <field name="event_type">http_request</field>
+    <description>SOC sim: HTTP request</description>
+    <group>soc_sim,</group>
+  </rule>
+
+  <rule id="100020" level="3">
+    <if_sid>86600</if_sid>
+    <field name="log_type">soc_sim</field>
+    <field name="event_type">process_start</field>
+    <description>SOC sim: Process start</description>
+    <group>soc_sim,system_process,</group>
+  </rule>
+</group>
