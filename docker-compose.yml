@@ -1,0 +1,59 @@
+services:
+  # Log generators
+  log_generator:
+    build: ./log_generator
+    volumes:
+      - ./data:/app/data
+    networks:
+      - soc-shared
+
+  # TRAFFIC_MODE: normal | suspicious | injection
+  traffic_generator:
+    build: ./traffic_generator
+    environment:
+      TRAFFIC_MODE: injection
+    volumes:
+      - ./data:/app/data
+    networks:
+      - soc-shared
+
+  # SOC Analyst dashboard
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      OPENSEARCH_URL: https://wazuh.indexer:9200
+      OPENSEARCH_USER: admin
+      OPENSEARCH_PASS: SecretPassword
+    networks:
+      - soc-shared
+
+  # Ollama LLM
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    networks:
+      - soc-shared
+
+  # LLM alert aggregator
+  llm_aggregator:
+    build: ./llm_aggregator
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      OPENSEARCH_URL: https://wazuh.indexer:9200
+      OPENSEARCH_USER: admin
+      OPENSEARCH_PASS: SecretPassword
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2
+    networks:
+      - soc-shared
+
+networks:
+  soc-shared:
+    external: true

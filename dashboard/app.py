@@ -1,0 +1,156 @@
+import os
+import json
+import requests
+from flask import Flask, render_template, jsonify, request
+from datetime import datetime, timezone, timedelta
+from urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+app = Flask(__name__)
+
+OPENSEARCH_URL = os.environ.get("OPENSEARCH_URL", "https://wazuh.indexer:9200")
+OPENSEARCH_USER = os.environ.get("OPENSEARCH_USER", "admin")
+OPENSEARCH_PASS = os.environ.get("OPENSEARCH_PASS", "SecretPassword")
+
+ALERTS_INDEX = "wazuh-alerts-4.x-*"
+
+
+def os_get(path: str, body: dict) -> dict:
+    url = f"{OPENSEARCH_URL}/{path}"
+    resp = requests.post(
+        url,
+        json=body,
+        auth=(OPENSEARCH_USER, OPENSEARCH_PASS),
+        verify=False,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_alerts(hours: int = 24, rule_group: str = "", search: str = "") -> list[dict]:
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+    must = [{"range": {"timestamp": {"gte": since}}}]
+    must.append({"range": {"rule.id": {"gte": "100010", "lte": "100099"}}})
+
+    if rule_group:
+        must.append({"term": {"rule.groups": rule_group}})
+
+    if search:
+        must.append({
+            "multi_match": {
+                "query": search,
+                "fields": [
+                    "rule.description",
+                    "data.src_ip",
+                    "data.path",
+                    "data.user_agent",
+                    "data.query",
+                    "data.request_body"
+                ],
+            }
+        })
+
+    query = {
+        "size": 200,
+        "sort": [{"timestamp": {"order": "desc"}}],
+        "query": {"bool": {"must": must}},
+    }
+
+    try:
+        raw = os_get(f"{ALERTS_INDEX}/_search", query)
+    except Exception as e:
+        return [{"_error": str(e)}]
+
+    alerts = []
+    for hit in raw.get("hits", {}).get("hits", []):
+        src = hit.get("_source", {})
+        data = src.get("data", {})
+        rule = src.get("rule", {})
+
+        alerts.append({
+            "id": hit["_id"],
+            "timestamp": src.get("timestamp", ""),
+            "rule_id": rule.get("id", ""),
+            "rule_level": rule.get("level", 0),
+            "rule_desc": rule.get("description", ""),
+            "rule_groups": rule.get("groups", []),
+            "src_ip": data.get("src_ip", ""),
+            "method": data.get("method", ""),
+            "path": data.get("path", ""),
+            "status_code": data.get("status_code", ""),
+            "user_agent": data.get("user_agent", ""),
+            "query": data.get("query", ""),
+            "request_body": data.get("request_body", ""),
+            "host": data.get("host", src.get("agent", {}).get("name", "")),
+            "ai_verdict": src.get("ai_verdict", None),
+            "ai_summary": src.get("ai_summary", None),
+            "ai_incident": src.get("ai_incident", None),
+            "ai_priority": src.get("ai_priority", None),
+            "ai_confidence": src.get("ai_confidence", None),
+            "ai_injection_suspected": src.get("ai_injection_suspected", None),
+        })
+
+    return alerts
+
+
+def fetch_stats() -> dict:
+    query = {
+        "size": 0,
+        "query": {"range": {"rule.id": {"gte": "100010", "lte": "100099"}}},
+        "aggs": {
+            "by_level": {
+                "range": {
+                    "field": "rule.level",
+                    "ranges": [
+                        {"key": "low", "from": 0, "to": 7},
+                        {"key": "medium", "from": 7, "to": 11},
+                        {"key": "high", "from": 11, "to": 100},
+                    ],
+                }
+            },
+            "by_group": {
+                "terms": {"field": "rule.groups", "size": 10}
+            },
+        },
+    }
+
+    try:
+        raw = os_get(f"{ALERTS_INDEX}/_search", query)
+        buckets_level = {
+            b["key"]: b["doc_count"]
+            for b in raw["aggregations"]["by_level"]["buckets"]
+        }
+        buckets_group = {
+            b["key"]: b["doc_count"]
+            for b in raw["aggregations"]["by_group"]["buckets"]
+        }
+        total = raw["hits"]["total"]["value"]
+        return {"total": total, "by_level": buckets_level, "by_group": buckets_group}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/api/alerts")
+def api_alerts():
+    hours = int(request.args.get("hours", 24))
+    rule_group = request.args.get("group", "")
+    search = request.args.get("search", "")
+    alerts = fetch_alerts(hours=hours, rule_group=rule_group, search=search)
+    return jsonify(alerts)
+
+
+@app.route("/api/stats")
+def api_stats():
+    return jsonify(fetch_stats())
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=False)
