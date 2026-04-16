@@ -1,17 +1,37 @@
-<group name="soc_sim,">
+<group name="soc_sim,">.  Copy of real xml file in wazuh folder
+
   <rule id="100010" level="3">
     <if_sid>86600</if_sid>
     <field name="log_type">soc_sim</field>
-    <field name="event_type">http_request</field>
-    <description>SOC sim: HTTP request</description>
-    <group>soc_sim,</group>
+    <field name="source">traffic_generator</field>
+    <description>SOC sim: Web event</description>
+    <group>web,</group>
   </rule>
 
   <rule id="100020" level="3">
     <if_sid>86600</if_sid>
     <field name="log_type">soc_sim</field>
-    <field name="event_type">process_start</field>
-    <description>SOC sim: Process start</description>
-    <group>soc_sim,system_process,</group>
+    <field name="source">auth_generator</field>
+    <description>SOC sim: Auth event</description>
+    <group>auth,</group>
   </rule>
+
+  <rule id="100030" level="3">
+    <if_sid>86600</if_sid>
+    <field name="log_type">soc_sim</field>
+    <field name="source">endpoint_generator</field>
+    <description>SOC sim: Endpoint event</description>
+    <group>endpoint,</group>
+  </rule>
+
+  <rule id="100040" level="3">
+    <if_sid>86600</if_sid>
+    <field name="log_type">soc_sim</field>
+    <field name="source">network_generator</field>
+    <description>SOC sim: Network event</description>
+    <group>network,</group>
+  </rule>
+
 </group>
+  
+

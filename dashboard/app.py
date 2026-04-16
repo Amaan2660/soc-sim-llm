@@ -5,15 +5,22 @@ from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timezone, timedelta
 from urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+from datetime import datetime, timezone
+
+START_TIME = datetime.now(timezone.utc)
 
 app = Flask(__name__)
 
-OPENSEARCH_URL  = os.environ.get("OPENSEARCH_URL", "https://wazuh-indexer:9200")
+OPENSEARCH_URL  = os.environ.get("OPENSEARCH_URL", "https://wazuh.indexer:9200")
 OPENSEARCH_USER = os.environ.get("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASS = os.environ.get("OPENSEARCH_PASS", "SecretPassword123!")
+OPENSEARCH_PASS = os.environ.get("OPENSEARCH_PASS", "SecretPassword")
 
 # Wazuh stores alerts in a daily rolling index
 ALERTS_INDEX = "wazuh-alerts-4.x-*"
+
+
+def parse_wazuh_time(ts):
+    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z")
 
 
 def os_get(path: str, body: dict) -> dict:
@@ -29,25 +36,29 @@ def os_get(path: str, body: dict) -> dict:
 
 
 def fetch_alerts(hours: int = 24, rule_group: str = "", search: str = "") -> list[dict]:
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    time_cutoff = START_TIME
+    since = time_cutoff.isoformat()
 
     must = [{"range": {"timestamp": {"gte": since}}}]
 
-    # Filter to soc_sim rules only (rule IDs 100010-100099)
-    must.append({"range": {"rule.id": {"gte": "100010", "lte": "100099"}}})
+    must.append({
+    "terms": {
+        "rule.id": ["100010", "100020", "100030", "100040", "100011", "100012"]
+    }
+})
 
-    if rule_group:
-        must.append({"term": {"rule.groups": rule_group}})
+    if rule_group and rule_group.lower() != "all":
+        groups = [g.strip() for g in rule_group.split(",") if g.strip()]
+        if groups:
+            must.append({"terms": {"rule.groups": groups}})
 
-    if search:
-        must.append({"multi_match": {
-            "query": search,
-            "fields": ["rule.description", "data.src_ip", "data.path",
-                       "data.user_agent", "data.query", "data.request_body"],
-        }})
-
+   # query = {
+   #     "size": 200,
+   #     "sort": [{"timestamp": {"order": "desc"}}],
+   #     "query": {"bool": {"must": must}},
+   # }
     query = {
-        "size": 200,
+        "size": 500,
         "sort": [{"timestamp": {"order": "desc"}}],
         "query": {"bool": {"must": must}},
     }
@@ -87,17 +98,30 @@ def fetch_alerts(hours: int = 24, rule_group: str = "", search: str = "") -> lis
 
 def fetch_stats() -> dict:
     """Summary counts for the dashboard header."""
+    time_cutoff = START_TIME.isoformat()
+
     query = {
         "size": 0,
-        "query": {"range": {"rule.id": {"gte": "100010", "lte": "100099"}}},
+        "query": {
+            "bool": {
+                "must": [
+                    {"range": {"timestamp": {"gte": time_cutoff}}},
+                    {
+                        "terms": {
+                            "rule.id": ["100010", "100020", "100030", "100040"]
+                        }
+                    }
+                ]
+            }
+        },
         "aggs": {
             "by_level": {
                 "range": {
                     "field": "rule.level",
                     "ranges": [
-                        {"key": "low",      "from": 0,  "to": 7},
-                        {"key": "medium",   "from": 7,  "to": 11},
-                        {"key": "high",     "from": 11, "to": 100},
+                        {"key": "low", "from": 0, "to": 7},
+                        {"key": "medium", "from": 7, "to": 11},
+                        {"key": "high", "from": 11, "to": 100},
                     ],
                 }
             },
@@ -106,6 +130,8 @@ def fetch_stats() -> dict:
             },
         },
     }
+
+
     try:
         raw = os_get(f"{ALERTS_INDEX}/_search", query)
         buckets_level = {
@@ -133,12 +159,20 @@ def api_alerts():
     rule_group = request.args.get("group", "")
     search     = request.args.get("search", "")
     alerts = fetch_alerts(hours=hours, rule_group=rule_group, search=search)
+    print("hours=", hours, "group=", rule_group, "search=", search, flush=True)
     return jsonify(alerts)
+
 
 
 @app.route("/api/stats")
 def api_stats():
     return jsonify(fetch_stats())
+
+@app.route("/api/reset")
+def reset():
+    global START_TIME
+    START_TIME = datetime.now(timezone.utc)
+    return {"status": "reset"}
 
 
 if __name__ == "__main__":

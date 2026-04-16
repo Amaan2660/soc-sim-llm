@@ -1,37 +1,56 @@
 services:
- 
-
-  # ── Log generators ───────────────────────────────────────────────────────
-  log_generator:
-    build: ./log_generator
+  web_generator:
+    build: ./generators
+    command: python web_generator/traffic_generator.py
+    environment:
+      TRAFFIC_MODE: ${TRAFFIC_MODE}
     volumes:
       - ./data:/app/data
     networks:
       - soc-shared
 
-  # TRAFFIC_MODE: normal | suspicious | injection
-  traffic_generator:
-    build: ./traffic_generator
+  auth_generator:
+    build: ./generators
+    command: python authentication_generator/auth_generator.py
     environment:
-      TRAFFIC_MODE: injection
+      TRAFFIC_MODE: ${TRAFFIC_MODE}
     volumes:
       - ./data:/app/data
     networks:
-     - soc-shared
+      - soc-shared
 
-  # ── SOC Analyst dashboard ────────────────────────────────────────────────
+  endpoint_generator:
+    build: ./generators
+    command: python endpoint_generator/generator.py
+    environment:
+      TRAFFIC_MODE: ${TRAFFIC_MODE}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - soc-shared
+
+  network_generator:
+    build: ./generators
+    command: python network_generator/network_generator.py
+    environment:
+      TRAFFIC_MODE: ${TRAFFIC_MODE}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - soc-shared
+
   dashboard:
     build: ./dashboard
     restart: unless-stopped
     ports:
-      - "8080:8080"       # open http://localhost:8080
+      - "8080:8080"
     environment:
       OPENSEARCH_URL: https://wazuh.indexer:9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASS: SecretPassword
     networks:
       - soc-shared
-    
+
 networks:
   soc-shared:
     external: true
